@@ -57,38 +57,53 @@ public class MUADCLProject : MonoBehaviour
     {
         DoExport();
     }
+    public Dictionary<string, int> usedModels;
+    public int entityIndex, shapeIndex;
+    public void CreateShapeRecursively(GameObject go, StreamWriter file, int muaParentIndex)
+    {
+        if (!go.active)
+            return;
+        var shape = go.GetComponent<MUADCLObject>();
+
+        if (shape)
+        {
+            if (!usedModels.ContainsKey(shape.GLTFRelativePath))
+            {
+                file.WriteLine($"const shape_{shapeIndex} = new GLTFShape('{shape.GLTFRelativePath}');");
+                usedModels.Add(shape.GLTFRelativePath, shapeIndex++);
+            }
+            int currentShapeIndex;
+            usedModels.TryGetValue(shape.GLTFRelativePath, out currentShapeIndex);
+            file.WriteLine($"const entity_{entityIndex} = new Entity();");
+            file.WriteLine($"entity_{entityIndex}.addComponent(new Transform({{");
+            file.WriteLine($"position:new Vector3({go.transform.localPosition.x},{go.transform.localPosition.y},{go.transform.localPosition.z}),");
+            file.WriteLine($"rotation:new Quaternion({go.transform.localRotation.x},{go.transform.localRotation.y},{go.transform.localRotation.z},{go.transform.localRotation.w}),");
+            file.WriteLine($"scale:new Vector3({go.transform.localScale.x},{go.transform.localScale.y},{go.transform.localScale.z})");
+            file.WriteLine($"}}));");
+            file.WriteLine($"entity_{entityIndex}.addComponent(shape_{currentShapeIndex});");
+            if (muaParentIndex != -1)
+                file.WriteLine($"entity_{entityIndex}.setParent(entity_{muaParentIndex});");
+            file.WriteLine($"engine.addEntity(entity_{entityIndex});");
+            muaParentIndex = entityIndex;
+            entityIndex++;
+        }
+
+        for (int i = 0; i < go.transform.childCount;++i)
+        {
+            var child = go.transform.GetChild(i);
+            CreateShapeRecursively(child.gameObject, file, muaParentIndex);
+        }
+    }
     public async Task DoExport()
     {
         using (StreamWriter file = new StreamWriter(rootFolder_ + "/src/game.ts"))
         {
             file.WriteLine("import * as utils from '@dcl/ecs-scene-utils'");
-            int entityIndex = 0;
-            int shapeIndex = 0;
-            var usedModels = new Dictionary<string, int>();
+            entityIndex = 0;
+            shapeIndex = 0;
+            usedModels = new Dictionary<string, int>();
             foreach (GameObject go in UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects())
-                if(go.active)
-                {
-                    // TODO: Create entity hierarchy recursively.
-                    foreach (var shape in go.GetComponentsInChildren<MUADCLObject>())
-                        {
-                            if (!usedModels.ContainsKey(shape.GLTFRelativePath))
-                            {
-                                file.WriteLine($"const shape_{shapeIndex} = new GLTFShape('{shape.GLTFRelativePath}');");
-                                usedModels.Add(shape.GLTFRelativePath, shapeIndex++);
-                            }
-                            int currentShapeIndex;
-                            usedModels.TryGetValue(shape.GLTFRelativePath, out currentShapeIndex);
-                            file.WriteLine($"const entity_{entityIndex} = new Entity();");
-                            file.WriteLine($"entity_{entityIndex}.addComponent(new Transform({{");
-                            file.WriteLine($"position:new Vector3({go.transform.position.x},{go.transform.position.y},{go.transform.position.z}),");
-                            file.WriteLine($"rotation:new Quaternion({go.transform.rotation.x},{go.transform.rotation.y},{go.transform.rotation.z},{go.transform.rotation.w}),");
-                            file.WriteLine($"scale:new Vector3({go.transform.localScale.x},{go.transform.localScale.y},{go.transform.localScale.z})");
-                            file.WriteLine($"}}));");
-                            file.WriteLine($"entity_{entityIndex}.addComponent(shape_{currentShapeIndex});");
-                            file.WriteLine($"engine.addEntity(entity_{entityIndex});");
-                            entityIndex++;
-                        }
-                }
+                CreateShapeRecursively(go, file, -1);
         }
     }
 }
